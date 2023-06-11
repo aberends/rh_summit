@@ -1,0 +1,185 @@
+REFERENCES
+
+[1] https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html-single/configuring_and_managing_virtualization/index
+[2] https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html-single/managing_systems_using_the_rhel_9_web_console/index
+[3] https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html-single/composing_a_customized_rhel_system_image/index
+[4] https://www.osbuild.org/guides/introduction.html
+[5] https://www.osbuild.org/guides/blueprint-reference/blueprint-reference.html
+[6] https://ostreedev.github.io/ostree/
+
+
+PREREQUISITES
+
+Basic installation of RHEL 9.2 server with GUI with root
+login over SSH.
+
+Some configurations:
+
+# sed -i \
+  -e 's/^\(%wheel[ \t]\+ALL=(ALL)[ \t]\+ALL\)$/#\1/' \
+  -e 's/^#[ \t]\+\(%wheel[ \t]\+ALL=(ALL)[ \t]\+NOPASSWD:[ \t]\+ALL\)$/\1/' \
+  /etc/sudoers
+
+# cat ~/.vimrc
+set background=dark
+set scrolloff=0
+
+# echo "set enable-bracketed-paste Off" >> ~/.inputrc
+
+# hostnamectl hostname nuc2.tux.lan
+
+# su - allard
+$ cat ~/.vimrc
+set background=dark
+set scrolloff=0
+echo "set enable-bracketed-paste Off" >> ~/.inputrc
+
+#
+subscription-manager register --auto-attach --username=USERNAME --password=PASSWORD
+.. Red Hat subscriptions ..
+
+# dnf -y update; reboot;
+
+
+COCKPIT
+
+Make cockpit accessible:
+
+#
+systemctl enable cockpit.socket --now
+firewall-cmd --add-service=cockpit --permanent
+firewall-cmd --reload
+.. Web console management ..
+
+Check the cockpit web interface. Notice that it has "Podman
+containers" on the left, but no "Virtual machines". By
+adding virtualization and "cockpit-machines", the menu
+"Virtual machines" becomes available.
+
+
+VIRTUALIZATION
+
+Add virtualization:
+
+#
+dnf -y install cockpit-machines qemu-kvm libvirt virt-install virt-viewer
+for drv in qemu network nodedev nwfilter secret storage interface; do systemctl start virt${drv}d{,-ro,-admin}.socket; done
+.. 89 RPMs ..
+
+Refresh the cockpit web interface and below "Podman
+containers" the "Virtual machines" menu appears.
+
+#
+virt-host-validate
+.. WARN (IOMMU appears to be disabled in kernel. Add intel_iommu=on to kernel cmdline arguments) ..
+
+#
+dmesg | grep -i iommu
+grubby --update-kernel=ALL --args="intel_iommu=on"
+grep iommu /etc/default/grub /boot/loader/entries/*.conf
+.. present ..
+
+# reboot
+
+#
+virt-host-validate
+.. correct ..
+
+
+IMAGE_BUILDER
+
+#
+dnf -y install osbuild-composer composer-cli cockpit-composer
+systemctl enable --now osbuild-composer.socket
+source /etc/bash_completion.d/composer-cli
+usermod -a -G wheel,libvirt,weldr allard
+
+Refresh the cockpit web interface and on the top of the page
+on the left "Image Builder" appears.
+
+
+BLUEPRINT
+
+$ cat << '_EOF_' > rh92.toml
+name = "rh92"
+description = "RHEL 9.2 rh summit demo system"
+version = "0.0.0"
+modules = []
+groups = []
+distro = "rhel-92"
+
+packages = [
+    { name = "tmux" },
+    { name = "tree" },
+    { name = "vim-enhanced" },
+]
+
+[customizations]
+hostname = "rh9001.tux.lan"
+
+[[customizations.user]]
+name = "root"
+password = "$6$6YmAYNKgApkQzrbU$Q82JMFgg/YUJ9HwCkFvRGbFnY7alEoStJJSXLZIxTYR440s5xDZB1f7Yf8h2XCJWQgNg.T2vw/aoDQ24iuyb40"
+
+[[customizations.user]]
+name = "allard"
+password = "$6$6YmAYNKgApkQzrbU$Q82JMFgg/YUJ9HwCkFvRGbFnY7alEoStJJSXLZIxTYR440s5xDZB1f7Yf8h2XCJWQgNg.T2vw/aoDQ24iuyb40"
+key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQClPkA6G9uFPkDqKHCXdtr2xQPf0qKv/+CMIlQ+j4ZSfxRi6YET6zw/6Y46cW0pcMggcaH0PH8ICVjjMFO/julvelk5Ax5MU0k2LNHEO4Yj6xJkSJ4yfkoB74TX31nxNs/zMBezFpKo/ehCl42PcaUdARLh9vMii4iKEsESfV5RonvcNVhKT7UZ/uSyBOJ2euZh+hp+Bxlxn8523sJmC0nYM6k5yo2jv/68JJjJBFKC9cZnbF9gR3RUCl99pJ6TuPFnMDokXvWIvLya6EQMVihjB5PpztuRZP4+Gj9kJVKhL1leEjF1usDUW3RSoo4RoIx8TPZbcxhvv6FdkUG/e+hn"
+groups = ["wheel"]
+
+[customizations.timezone]
+timezone = "Europe/Amsterdam"
+
+[customizations.locale]
+
+[customizations.firewall]
+
+[customizations.ignition]
+
+[customizations.openscap]
+datastream = "/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml"
+profile_id = "xccdf_org.ssgproject.content_profile_cis_server_l1"
+_EOF_
+
+$ composer-cli blueprints push rh92.toml
+
+$ composer-cli blueprints list
+rh92
+
+
+IMAGE_TYPES
+
+$ composer-cli compose types
+ami
+edge-commit
+edge-container
+edge-installer
+edge-raw-image
+edge-simplified-installer
+gce
+image-installer
+oci
+openstack
+qcow2
+tar
+vhd
+vmdk
+
+
+IMAGE_BUILD
+
+$ composer-cli compose start rh92 qcow2 --size $((20 * 1024))
+Compose ae83d821-2da2-4cde-a51b-02e8345695cb added to the queue
+
+$ while true; do composer-cli compose status | grep RUNNING || break; sleep 2; done; date
+ae83d821-2da2-4cde-a51b-02e8345695cb   RUNNING    Tue Jun 6 21:39:57 2023   rh92              0.0.0     qcow2
+.. many more ..
+Tue Jun  6 09:43:47 PM CEST 2023
+.. about 4 minutes ..
+
+# updatedb
+# locate *.qcow2
+/var/lib/osbuild-composer/artifacts/605c8c71-8718-448c-9adf-a0d70559e074/disk.qcow2
+
+# cp /var/lib/osbuild-composer/artifacts/605c8c71-8718-448c-9adf-a0d70559e074/disk.qcow2 /var/lib/libvirt/images/test_rh92.qcow2
+# chown qemu: /var/lib/libvirt/images/test_rh92.qcow2

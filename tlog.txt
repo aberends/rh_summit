@@ -1,0 +1,67 @@
+REFERENCES
+
+[1] https://www.redhat.com/sysadmin/terminal-logging
+[2] https://github.com/Scribery/tlog
+[3] https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html-single/recording_sessions/index
+[4] https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/automating_system_administration_by_using_rhel_system_roles/configuring-a-system-for-session-recording-using-the-tlog-rhel-system-roles_automating-system-administration-by-using-rhel-system-roles
+
+
+PREREQUISITES
+
+Basic installation of RHEL 9.2 server with GUI with root
+login over SSH.
+
+Some configurations:
+
+# sed -i \
+  -e 's/^\(%wheel[ \t]\+ALL=(ALL)[ \t]\+ALL\)$/#\1/' \
+  -e 's/^#[ \t]\+\(%wheel[ \t]\+ALL=(ALL)[ \t]\+NOPASSWD:[ \t]\+ALL\)$/\1/' \
+  /etc/sudoers
+
+# cat ~/.vimrc
+set background=dark
+set scrolloff=0
+
+# echo "set enable-bracketed-paste Off" >> ~/.inputrc
+
+# hostnamectl hostname nuc2.tux.lan
+
+#
+useradd -G wheel allard
+echo redhat | passwd --stdin allard
+
+# su - allard
+$ cat ~/.vimrc
+set background=dark
+set scrolloff=0
+echo "set enable-bracketed-paste Off" >> ~/.inputrc
+
+#
+subscription-manager register --auto-attach --username=USERNAME --password=PASSWORD
+.. Red Hat subscriptions ..
+
+# dnf -y update; reboot;
+
+
+COCKPIT
+
+Make cockpit accessible:
+
+#
+systemctl enable cockpit.socket --now
+firewall-cmd --add-service=cockpit --permanent
+firewall-cmd --reload
+.. Web console management ..
+
+
+INSTALL_TLOG_AND_COCKPIT_RECORDING
+
+# dnf -y install tlog cockpit-session-recording
+
+
+TLOG_PLAY
+
+# journalctl -o verbose | grep TLOG_REC
+    TLOG_REC=155c16bfd6fc4dda891d0211f10e1987-80b7-5d75
+
+# tlog-play -r journal -M TLOG_REC=155c16bfd6fc4dda891d0211f10e1987-80b7-5d75
